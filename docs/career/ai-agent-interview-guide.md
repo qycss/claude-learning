@@ -1,472 +1,472 @@
-# 从 205K 行源码到 AI Agent 工程师 Offer：一份非典型面试指南
+# From 205K Lines of Source Code to AI Agent Engineer Offer: An Unconventional Interview Guide
 
-> 这不是一份教你背八股文的面试手册。这是一份基于对 Claude Code——Anthropic 的生产级 AI Agent 系统——源码级逆向分析，写给每一个想转型 AI Agent 工程师的人的实战指南。
+> This is not your typical interview prep manual full of rote Q&As. This is a battle-tested guide written for anyone looking to transition into an AI Agent engineering role — grounded in a source-level reverse analysis of Claude Code, Anthropic's production-grade AI Agent system.
 >
-> 如果你是一个有 2-5 年经验的后端/全栈/前端工程师，对 AI Agent 方向感兴趣，但苦于"不知道从哪里开始"、"不知道面试会考什么"、"不知道怎么证明自己懂"——这份文档就是为你写的。
+> If you're a backend, full-stack, or frontend engineer with 2-5 years of experience, curious about the AI Agent space but stuck on "where do I even start," "what will they actually ask me," or "how do I prove I get this stuff" — this document was written for you.
 
 ---
 
-## 第一章：为什么 Claude Code 源码是你最好的教材
+## Chapter 1: Why Claude Code's Source Is Your Best Textbook
 
-市面上学 AI Agent 的资源不少——LangChain 教程、AutoGPT 源码、各种 YouTube 视频。但它们有一个共同的问题：**都停留在 demo 级别。**
+There's no shortage of AI Agent learning resources out there — LangChain tutorials, AutoGPT source code, countless YouTube videos. But they all share one fundamental problem: **they never go beyond demo-level.**
 
-LangChain 教你怎么用 AgentExecutor，但不告诉你一个生产级的 Agent 循环需要处理 9 种不同的退出条件、3 层中断传播、多级上下文压缩和费用预算追踪。
+LangChain teaches you how to use AgentExecutor, but it won't tell you that a production-grade Agent loop needs to handle 9 distinct exit conditions, 3 layers of interrupt propagation, multi-level context compaction, and cost budget tracking.
 
-Claude Code 不一样。它是 **Anthropic 自己在用的、真正跑在生产环境中的 Agent 系统**。1,900 个 TypeScript 文件，205,000+ 行代码，40 个工具，5 层安全防护，4 个入口点，8 种 MCP 传输协议。这不是一个教学 demo，这是一个经历过无数生产事故后打磨出来的工业品。
+Claude Code is different. It is **the Agent system that Anthropic itself uses in production, for real.** 1,900 TypeScript files, 205,000+ lines of code, 40 tools, 5 layers of security, 4 entry points, 8 MCP transport protocols. This is not a teaching demo — this is an industrial artifact forged through countless production incidents.
 
-**读懂它，你获得的不是"我知道 Agent 是什么"，而是"我知道生产级 Agent 的每一个工程决策背后的 why"。**
+**Understand it, and what you gain isn't "I know what an Agent is" — it's "I know the *why* behind every engineering decision in a production-grade Agent."**
 
-而这个 why，恰恰是面试官最想听到的东西。
+And that *why* is exactly what interviewers want to hear.
 
 ---
 
-## 第二章：六根支柱——AI Agent 工程师的核心知识图谱
+## Chapter 2: Six Pillars — The Core Knowledge Map for AI Agent Engineers
 
-在深入源码之前，你需要建立一个完整的知识框架。我把 AI Agent 工程师需要掌握的核心技术提炼为六根支柱。每根支柱，我不仅告诉你"是什么"，还告诉你"源码里怎么做的"、"为什么这样做"、"面试怎么讲"。
+Before diving into the source code, you need to build a complete knowledge framework. I've distilled the core competencies an AI Agent engineer must possess into six pillars. For each pillar, I'll walk you through not just "what it is," but also "how it's done in the source," "why it's done that way," and "how to talk about it in an interview."
 
-### 支柱一：Agent 循环——一切的起点
+### Pillar 1: The Agent Loop — Where Everything Begins
 
-**一句话本质：Agent 的核心是一个 `while(true)` 循环——LLM 输出 tool_use 就执行工具并继续循环，不输出就退出。**
+**In one sentence: The core of an Agent is a `while(true)` loop — if the LLM outputs tool_use, execute the tool and continue the loop; if it doesn't, exit.**
 
-这句话说起来简单，但 Claude Code 的 `query.ts` 用了 1,500 行来实现这个循环。为什么？因为生产环境中，你需要处理的不只是 happy path。
+Sounds simple, but Claude Code's `query.ts` takes 1,500 lines to implement this loop. Why? Because in production, you need to handle far more than just the happy path.
 
-源码中，主循环有 **9 种不同的 `continue` 路径**，每个都标记了 `transition.reason`：`next_turn`（正常继续）、`reactive_compact_retry`（上下文溢出后压缩重试）、`max_output_tokens_recovery`（输出被截断后自动续写）、`collapse_drain_retry`（折叠上下文后重试）……
+In the source, the main loop has **9 distinct `continue` paths**, each tagged with a `transition.reason`: `next_turn` (normal continuation), `reactive_compact_retry` (retry after context overflow compaction), `max_output_tokens_recovery` (auto-continue after output truncation), `collapse_drain_retry` (retry after context collapse), and more.
 
-一个"真正理解 Agent"的工程师，能说出这些退出条件意味着什么：
+An engineer who *truly* understands Agents can explain what each of these exit conditions means:
 
-| 退出条件 | 含义 | 源码位置 |
-|----------|------|----------|
-| 无 tool_use | LLM 认为任务完成 | `query.ts:1357` |
-| maxTurns | 防无限循环的硬限制 | `query.ts:1705` |
-| 用户 abort（流式中） | 用户按了 Ctrl+C | `query.ts:1051` |
-| 用户 abort（工具执行中） | 工具还在跑时中断 | `query.ts:1515` |
-| prompt-too-long | 上下文溢出，自愈失败 | `query.ts:1175` |
-| max_output_tokens 恢复失败 | 续写 3 次仍未完成 | `query.ts:1223` |
-| Hook 阻断 | 外部 Hook 拦截了执行 | `query.ts:1279` |
-| 预算耗尽 | token 或美元预算用完 | `QueryEngine.ts:972` |
+| Exit Condition | Meaning | Source Location |
+|----------------|---------|-----------------|
+| No tool_use | LLM considers the task complete | `query.ts:1357` |
+| maxTurns | Hard limit to prevent infinite loops | `query.ts:1705` |
+| User abort (during streaming) | User pressed Ctrl+C | `query.ts:1051` |
+| User abort (during tool execution) | Interrupt while a tool is still running | `query.ts:1515` |
+| prompt-too-long | Context overflow, self-healing failed | `query.ts:1175` |
+| max_output_tokens recovery failed | Still incomplete after 3 continuation attempts | `query.ts:1223` |
+| Hook blocked | External hook intercepted execution | `query.ts:1279` |
+| Budget exhausted | Token or dollar budget depleted | `QueryEngine.ts:972` |
 
-**面试金句**："Agent 循环不是一个简单的 while loop，而是一个带 9 种状态转移的状态机。真正的复杂度在于优雅地处理中断、超时、预算耗尽和自愈。"
+**Interview power quote**: "The Agent loop isn't a simple while loop — it's a state machine with 9 state transitions. The real complexity lies in gracefully handling interrupts, timeouts, budget exhaustion, and self-healing."
 
-**追问你就接**：
-- "如何防止 LLM 陷入无限工具调用？" → maxTurns + maxBudgetUsd 双重兜底
-- "中断是立即生效还是等工具完成？" → 取决于中断类型，`interruptBehavior` 区分 `cancel` 和 `block`
-- "上下文溢出怎么自愈？" → reactive compact 压缩后重试，失败则降级
+**When they follow up, you're ready**:
+- "How do you prevent the LLM from falling into infinite tool calls?" → maxTurns + maxBudgetUsd as dual safety nets
+- "Does interruption take effect immediately or wait for the tool to complete?" → Depends on the interrupt type; `interruptBehavior` distinguishes between `cancel` and `block`
+- "How does the system self-heal from context overflow?" → Reactive compact compresses and retries; if that fails, it degrades gracefully
 
-### 支柱二：工具系统——Agent 的手和脚
+### Pillar 2: The Tool System — The Agent's Hands and Feet
 
-**一句话本质：通过 `buildTool()` 工厂 + Zod schema + 声明式并发标记，将 40+ 工具统一为类型安全的接口，配合读写锁模型实现流式并发执行。**
+**In one sentence: Through a `buildTool()` factory + Zod schema + declarative concurrency markers, 40+ tools are unified into a type-safe interface, with a reader-writer lock model enabling concurrent streaming execution.**
 
-Claude Code 的工具系统有一个极其精妙的设计：**每个工具自己声明自己是否 concurrency-safe**（`isConcurrencySafe()`）。调度器不需要理解每个工具的内部逻辑——它只看声明，决定串行还是并行。
+Claude Code's tool system has an exquisitely elegant design: **each tool declares whether it is concurrency-safe** (`isConcurrencySafe()`). The scheduler doesn't need to understand each tool's internal logic — it just reads the declaration and decides whether to serialize or parallelize.
 
 ```
-工具序列: [grep, glob, grep, bash_write, grep]
-分区结果: [{concurrent: [grep, glob, grep]}, {serial: [bash_write]}, {concurrent: [grep]}]
+Tool sequence: [grep, glob, grep, bash_write, grep]
+Partition result: [{concurrent: [grep, glob, grep]}, {serial: [bash_write]}, {concurrent: [grep]}]
 ```
 
-这是一种 **读写锁语义**：多个 read-only 工具可以并发，任何 write 工具必须独占。但比经典读写锁更细致——`isConcurrencySafe()` 不是纯静态属性，BashTool 会根据命令内容动态判断（只读命令标记为 safe，写入命令标记为 unsafe）。
+This is **reader-writer lock semantics**: multiple read-only tools can run concurrently, but any write tool requires exclusive access. Yet it's more nuanced than a classic reader-writer lock — `isConcurrencySafe()` is not a purely static property. BashTool dynamically determines safety based on command content (read-only commands are marked safe, write commands are marked unsafe).
 
-另一个被忽略的精妙之处：**工具执行和 API 流式接收是并行的**。`StreamingToolExecutor` 在 API 还在流式输出时就开始执行已完成解析的工具。大多数人以为流程是"等 API 响应完 → 执行工具"，但 Claude Code 是"边接收边执行"——这是实际延迟优化的关键。
+Another overlooked subtlety: **tool execution and API streaming reception happen in parallel.** `StreamingToolExecutor` begins executing tools that have been fully parsed while the API is still streaming output. Most people assume the flow is "wait for the API response to finish → execute tools," but Claude Code actually does "receive and execute simultaneously" — this is the key to real-world latency optimization.
 
-**面试中这样讲**：
-> "工具系统设计的关键不是实现多少工具，而是接口规范。我会用工厂模式 + schema 校验 + 声明式并发标记。特别是并发控制——不是所有工具都串行，也不是所有都并行。每个工具自己声明是否 concurrency-safe，调度器根据声明自动分区。read-only 工具并发，write 工具独占。默认值必须是 fail-closed（假定不安全）。"
+**How to present this in an interview**:
+> "The key to tool system design isn't how many tools you implement — it's the interface contract. I'd use a factory pattern + schema validation + declarative concurrency markers. Concurrency control is especially critical — not all tools should be serialized, and not all should be parallelized. Each tool declares whether it's concurrency-safe, and the scheduler automatically partitions based on those declarations. Read-only tools run concurrently; write tools get exclusive access. The default must be fail-closed — assume unsafe."
 
-### 支柱三：安全与权限——Agent 工程的核心难题
+### Pillar 3: Security and Permissions — The Central Challenge of Agent Engineering
 
-**一句话本质：5 层防御纵深，从静态规则到 LLM 分类器到 OS 沙箱，核心原则是 fail-closed。**
+**In one sentence: 5-layer defense in depth, from static rules to LLM classifiers to OS sandboxing, with the core principle of fail-closed.**
 
-这是最能拉开面试差距的话题。大多数候选人谈安全只会说"加个白名单"，但 Claude Code 的安全系统有 **2,592 行的 Bash 安全验证器**、**双阶段 YOLO 分类器**、**5 层权限门控**。
+This is the topic that creates the biggest gap between candidates in interviews. Most people only say "add a whitelist" when discussing security, but Claude Code's security system includes a **2,592-line Bash security validator**, a **two-phase YOLO classifier**, and **5 layers of permission gating.**
 
-五层按顺序评估：
+The five layers are evaluated in order:
 
-1. **静态规则**：allow/deny 列表，按 `ToolName(content)` 模式匹配
-2. **模式校验**：不同模式（default/plan/auto）有不同的工具可用范围
-3. **工具级检查**：每个工具自己的 `checkPermissions()`——比如 FileEdit 检查路径是否在工作目录内
-4. **分类器**：用独立的 LLM 调用（sideQuery）评估操作安全性——这是"用 LLM 审计 LLM"
-5. **OS 沙箱**：macOS Seatbelt / Linux namespace，最后一道防线
+1. **Static rules**: Allow/deny lists, pattern-matched by `ToolName(content)`
+2. **Mode validation**: Different modes (default/plan/auto) have different tool availability
+3. **Tool-level checks**: Each tool's own `checkPermissions()` — e.g., FileEdit verifies the path is within the working directory
+4. **Classifier**: An independent LLM call (sideQuery) evaluates operation safety — this is "using LLM to audit LLM"
+5. **OS sandbox**: macOS Seatbelt / Linux namespace, the last line of defense
 
-分类器的设计尤其值得深究。它是一个 **两阶段系统**：Fast 阶段用 64 token 做快速二元判断，如果判为"拒绝"，Thinking 阶段用 4096 token 带推理复核，减少误判。两个阶段共享 prompt prefix，第二阶段能命中第一阶段的缓存，延迟增加极小。
+The classifier design deserves deep scrutiny. It's a **two-phase system**: the Fast phase uses 64 tokens for a quick binary judgment; if it returns "deny," the Thinking phase uses 4,096 tokens with reasoning for a second opinion, reducing false positives. Both phases share a prompt prefix, so the second phase can hit the first phase's cache with minimal additional latency.
 
-**面试中的杀手锏洞察**：
-> "分类器只看 tool_use 的结构化摘要，不看 assistant 的文本输出——因为 assistant 的文本可能已经被 prompt injection 污染了。每个工具通过 `toAutoClassifierInput()` 自己负责提供安全相关的输入摘要。返回空字符串表示'这个工具没有安全相关性，跳过分类'。"
+**The killer insight for interviews**:
+> "The classifier only looks at a structured summary of the tool_use — it never sees the assistant's text output — because the assistant text may already be contaminated by prompt injection. Each tool is responsible for providing its own security-relevant input summary via `toAutoClassifierInput()`. Returning an empty string means 'this tool has no security relevance; skip classification.'"
 
-还有一个容易被忽略的设计——**denial circuit breaker**：连续拒绝超过阈值后，自动降级为交互式确认模式，而不是永远静默拒绝。这防止了分类器持续误判导致的用户体验死循环。
+There's another easily overlooked design — **denial circuit breaker**: after consecutive denials exceed a threshold, the system automatically degrades to interactive confirmation mode rather than silently denying forever. This prevents a death loop in user experience caused by persistent classifier false positives.
 
-### 支柱四：流式处理与中断控制
+### Pillar 4: Streaming and Interrupt Control
 
-**一句话本质：AsyncGenerator 双层流式管道 + 三层级联 AbortController + WeakRef 防内存泄漏。**
+**In one sentence: AsyncGenerator dual-layer streaming pipeline + three-tier cascading AbortController + WeakRef to prevent memory leaks.**
 
-这个支柱面试中被问到的概率不如前三个高，但如果被问到，你的回答深度会直接决定 hire/no-hire。
+This pillar comes up less frequently in interviews than the first three, but if it does come up, the depth of your answer will directly determine hire/no-hire.
 
-关键设计：**AbortController 的三层级联**。
+Key design: **three-tier cascading AbortController.**
 
 ```
-会话级 AbortController
-  └── 轮次级 AbortController
-        └── 工具级 AbortController (WeakRef)
+Session-level AbortController
+  └── Turn-level AbortController
+        └── Tool-level AbortController (WeakRef)
 ```
 
-会话中止 → 取消所有轮次和工具。轮次中止 → 取消当前轮次但不取消会话。工具中止 → 只取消一个工具。
+Session abort → cancels all turns and tools. Turn abort → cancels the current turn but not the session. Tool abort → cancels only one tool.
 
-精妙的是 **非对称冒泡**：`sibling_error`（兄弟工具出错）原因的 abort 不会冒泡到父级——因为兄弟工具的错误不应该终止整个轮次。而且只有 Bash 工具的错误会取消兄弟（因为 Bash 命令有隐式依赖链），Read/WebFetch 的错误不会级联。
+The elegant part is **asymmetric bubbling**: an abort with reason `sibling_error` (sibling tool failed) does not bubble up to the parent — because a sibling tool's failure shouldn't terminate the entire turn. Moreover, only Bash tool errors cancel siblings (because Bash commands have implicit dependency chains); Read/WebFetch errors do not cascade.
 
-`WeakRef` 的使用解决了长时间运行 Agent 的内存泄漏问题——已完成的子 AbortController 可以被 GC 回收，不会因为父级监听器引用而泄漏。
+The use of `WeakRef` solves memory leak issues in long-running Agents — completed child AbortControllers can be garbage collected without being retained by parent-level listener references.
 
-### 支柱五：上下文管理——长对话 Agent 的生命线
+### Pillar 5: Context Management — The Lifeline of Long-Conversation Agents
 
-**一句话本质：6 层分级上下文回收（tool result budget → snip → microcompact → collapse → autocompact → reactive compact），按成本递增触发。**
+**In one sentence: 6-tier graduated context reclamation (tool result budget → snip → microcompact → collapse → autocompact → reactive compact), triggered in order of increasing cost.**
 
-大多数人以为"context window 满了就截断"。这是完全错误的——截断会丢失关键上下文（项目约定、之前的错误修复等）。
+Most people think "when the context window is full, just truncate." This is completely wrong — truncation loses critical context (project conventions, previous bug fixes, etc.).
 
-Claude Code 用 **LLM 自身** 做对话摘要。但压缩本身也消耗 API 调用——所以系统用了分层策略，按成本递增排列：
+Claude Code uses **the LLM itself** to summarize conversations. But compaction itself also consumes API calls — so the system employs a tiered strategy, arranged in order of increasing cost:
 
-1. **Tool result budget**：零成本，限制每条消息的工具结果大小
-2. **Snip**：零成本，裁剪超长的早期消息
-3. **Microcompact**：低成本，细粒度的 per-block 压缩
-4. **Context collapse**：低成本，折叠低价值的中间轮次
-5. **Auto compact**：一次 API 调用，用 LLM 生成对话摘要
-6. **Reactive compact**：紧急压缩，API 返回 413 后触发
+1. **Tool result budget**: Zero cost, limits the size of tool results per message
+2. **Snip**: Zero cost, trims overly long early messages
+3. **Microcompact**: Low cost, fine-grained per-block compression
+4. **Context collapse**: Low cost, collapses low-value intermediate turns
+5. **Auto compact**: One API call, uses the LLM to generate a conversation summary
+6. **Reactive compact**: Emergency compression, triggered after the API returns a 413
 
-顺序是故意设计的——如果 collapse 就能让 token 降到阈值以下，auto compact 就不触发，省一次 API 调用。
+The order is intentional — if collapse alone brings tokens below the threshold, auto compact doesn't fire, saving an API call.
 
-还有一个从生产事故中学来的教训：**circuit breaker**。源码注释提到 "1,279 sessions had 50+ consecutive failures, wasting ~250K API calls/day globally"。所以连续压缩失败 3 次后直接放弃，等 reactive compact 兜底。
+There's also a lesson learned from production incidents: **circuit breaker**. Source comments mention that "1,279 sessions had 50+ consecutive failures, wasting ~250K API calls/day globally." So after 3 consecutive compaction failures, the system gives up and lets reactive compact handle it as a fallback.
 
-### 支柱六：多 Agent 协调
+### Pillar 6: Multi-Agent Coordination
 
-**一句话本质：Agent 不是进程，是 `query()` 的递归调用 + fork cache（CacheSafeParams）共享 prompt cache + 三级隔离（进程内/worktree/remote）。**
+**In one sentence: An Agent is not a process — it's a recursive call to `query()` + fork cache (CacheSafeParams) for shared prompt caching + three-tier isolation (in-process / worktree / remote).**
 
-多 Agent 的核心不是"启动多个 Agent"，而是 **隔离和通信的设计**。
+The core of multi-Agent isn't "launching multiple Agents" — it's **the design of isolation and communication.**
 
-Claude Code 的 `AgentTool` 内部直接调用 `query()` — 与主循环是同一套代码。子 Agent 不需要特殊的运行时，只需要隔离的 context。
+Claude Code's `AgentTool` internally calls `query()` directly — using the same code as the main loop. Sub-Agents don't need a special runtime; they only need an isolated context.
 
-cache 共享是成本优化的关键：子 Agent 通过复用父 Agent 的 `CacheSafeParams`（system prompt + tools + model + message prefix），确保 API 请求的前缀一致，命中 prompt cache。这是一种 **Copy-on-Write** 思想在 API 级别的应用——N 个子 Agent 不需要 N 份系统提示的 KV Cache。
+Cache sharing is the key to cost optimization: sub-Agents reuse the parent's `CacheSafeParams` (system prompt + tools + model + message prefix), ensuring API request prefixes are consistent and hitting the prompt cache. This is a **Copy-on-Write** philosophy applied at the API level — N sub-Agents don't need N copies of the system prompt's KV Cache.
 
-**面试中这样总结整体架构**：
-> "Production-grade Agent 的复杂度不在于 LLM 调用本身，而在于循环控制、并发安全、中断传播、上下文预算、安全纵深这些工程基础设施。Claude Code 的 205K 行代码中，真正调用 LLM API 的代码不到 1%。"
+**How to summarize the overall architecture in an interview**:
+> "The complexity of a production-grade Agent isn't in the LLM call itself — it's in the loop control, concurrency safety, interrupt propagation, context budgeting, and security defense in depth — all engineering infrastructure. In Claude Code's 205K lines of code, less than 1% actually calls the LLM API."
 
 ---
 
-## 第三章：面试题库——你会被问到的一切
+## Chapter 3: Interview Question Bank — Everything You'll Be Asked
 
-### 基础层：确认你"知道"
+### Foundation Layer: Confirming You "Know"
 
-**Q1：什么是 Tool-Call Loop？它与传统 API 调用的本质区别是什么？**
+**Q1: What is a Tool-Call Loop? How is it fundamentally different from a traditional API call?**
 
-答题框架：Tool-Call Loop 是 Agent 的核心循环——LLM 输出 tool_use block → 系统执行工具 → 结果回传 → LLM 决定是否继续。本质区别在于**决策权在 LLM 手中**，而非预定义的代码流程。
+Answer framework: The Tool-Call Loop is the Agent's core loop — the LLM outputs a tool_use block → the system executes the tool → the result is fed back → the LLM decides whether to continue. The fundamental difference is that **decision-making authority resides with the LLM**, not in a predefined code flow.
 
-加分点：提到 stop_reason 的多种情况（end_turn/max_tokens/tool_use），以及循环终止不只是"LLM 不调用工具了"——还有预算耗尽、最大轮次、用户中断等多种退出路径。
+Bonus points: Mention the various stop_reason cases (end_turn / max_tokens / tool_use), and that loop termination isn't just "the LLM stops calling tools" — there are also budget exhaustion, max turns, user interrupts, and many other exit paths.
 
-**Q2：Agent 和 Chain 有什么区别？什么场景用 Agent 更合适？**
+**Q2: What's the difference between an Agent and a Chain? When is an Agent more appropriate?**
 
-答题框架：Chain 是预定义的线性/分支流程，Agent 是 LLM 自主决策。关键差异在于决策权。Chain 适合确定性流程（ETL），Agent 适合开放式任务（代码编写、调试）。
+Answer framework: A Chain is a predefined linear/branching flow; an Agent makes autonomous LLM-driven decisions. The key difference is where decision authority lies. Chains suit deterministic workflows (ETL); Agents suit open-ended tasks (code writing, debugging).
 
-加分点：Claude Code 中也有局部 Chain 模式——compaction 流程就是 pre-compact hooks → compact summary → post-compact cleanup，是预定义步骤。Agent ≠ 不能有固定步骤。
+Bonus points: Claude Code also employs local Chain patterns — the compaction flow is pre-compact hooks → compact summary → post-compact cleanup, a sequence of predefined steps. Agent does not mean you can't have fixed steps.
 
-**Q3：解释 Function Calling 的完整生命周期。**
+**Q3: Explain the complete lifecycle of Function Calling.**
 
-答题框架：定义 schema → 注册给 LLM → LLM 生成参数 → 系统校验参数 → 执行函数 → 结果回传。
+Answer framework: Define schema → register with the LLM → LLM generates parameters → system validates parameters → execute function → return result.
 
-加分点：Claude Code 的 Zod schema 有双重用途——既做运行时校验（`safeParse`），又转为 JSON Schema 发给 LLM（`toolToAPISchema()`）。一处定义，两处使用。
+Bonus points: Claude Code's Zod schema serves a dual purpose — it performs runtime validation (`safeParse`) and converts to JSON Schema for the LLM (`toolToAPISchema()`). One definition, two uses.
 
-**Q4：什么是 MCP（Model Context Protocol）？它解决什么问题？**
+**Q4: What is MCP (Model Context Protocol)? What problem does it solve?**
 
-答题框架：工具集成的标准化协议。解决 Agent 生态工具碎片化的问题。支持 stdio/SSE/Streamable HTTP 三种传输。
+Answer framework: A standardized protocol for tool integration. It solves the tool fragmentation problem in the Agent ecosystem. Supports three transports: stdio / SSE / Streamable HTTP.
 
-加分点：Claude Code 是 MCP 的最大实现案例——它的 MCP 集成支持 7 层配置作用域，从个人到组织到企业级，高优先级可以排他性覆盖低优先级。
+Bonus points: Claude Code is the largest MCP implementation — its MCP integration supports 7 configuration scope levels, from individual to organizational to enterprise, with higher-priority scopes able to exclusively override lower-priority ones.
 
-### 深入层：确认你"能设计"
+### Deep-Dive Layer: Confirming You "Can Design"
 
-**Q5：如何设计一个支持「并发读 + 串行写」的工具执行器？**
+**Q5: How would you design a tool executor that supports concurrent reads + serialized writes?**
 
-答题框架：每个工具声明 concurrency-safe → 调度器将工具分为 batch → 连续 safe 工具并发，unsafe 工具独占 → batch 间严格串行。
+Answer framework: Each tool declares concurrency-safe → the scheduler partitions tools into batches → consecutive safe tools run concurrently, unsafe tools get exclusive access → batches are strictly serialized.
 
-高分答案的关键差异：提到 safety 是**输入依赖**的（BashTool 的 `rm -rf` 是 unsafe 但 `ls` 是 safe），不是纯静态属性。提到 streaming overlapped execution——边接收 API 响应边执行工具。提到 context modifier 的累积需要在并发 batch 边界内延迟应用。
+What separates a top answer: Mention that safety is **input-dependent** (BashTool's `rm -rf` is unsafe, but `ls` is safe) — it's not a purely static property. Mention streaming overlapped execution — executing tools while still receiving the API response. Mention that context modifier accumulation needs to be deferred and applied at concurrent batch boundaries.
 
-**Q6：如何设计一个多层级权限系统，让 Agent 能安全执行 shell 命令？**
+**Q6: How would you design a multi-layered permission system that lets an Agent safely execute shell commands?**
 
-答题框架：静态规则层 → AST 分析层 → 分类器层 → 用户确认层 → 沙箱层。
+Answer framework: Static rule layer → AST analysis layer → classifier layer → user confirmation layer → sandbox layer.
 
-高分答案的关键差异：提到用 tree-sitter 做 AST 解析（而非正则），显式白名单所有理解的 AST 节点类型，未知节点 → too-complex → 必须询问用户。提到 speculative classifier——用户等待确认期间预判性地启动分类器，高置信度 allow 可以跳过用户确认。
+What separates a top answer: Mention using tree-sitter for AST parsing (not regex), explicitly whitelisting all understood AST node types, unknown nodes → too-complex → must prompt user. Mention speculative classifier — while the user is waiting to confirm, the classifier is speculatively invoked, and high-confidence allows can skip user confirmation.
 
-**Q7：如何设计 Agent 的上下文压缩策略？**
+**Q7: How would you design an Agent's context compaction strategy?**
 
-答题框架：监测 token → 超阈值触发压缩 → 用 LLM 做摘要 → 处理压缩边界。
+Answer framework: Monitor tokens → trigger compaction above threshold → use the LLM for summarization → handle compaction boundaries.
 
-高分答案的关键差异：提到分层回收策略（而非只说"压缩"），提到 circuit breaker 防止压缩本身成本失控，提到 compact 后需要恢复状态（重读活跃文件、重注入 plan、重新运行 session hooks）。
+What separates a top answer: Mention the tiered reclamation strategy (not just "compress"), mention circuit breaker to prevent the cost of compaction itself from spiraling, mention that post-compact state recovery is needed (re-read active files, re-inject the plan, re-run session hooks).
 
-**Q8：如何设计一个可中断的流式 Agent？**
+**Q8: How would you design an interruptible streaming Agent?**
 
-答题框架：AbortController 信号传播 → 中断后补齐 tool_result → 兄弟工具级联取消。
+Answer framework: AbortController signal propagation → fill in tool_result after interruption → sibling tool cascade cancellation.
 
-高分答案的关键差异：提到每个 pending tool_use 都需要对应的 tool_result error block（否则 API 消息格式不合法）。提到 abort reason 区分类型——sibling_error 不冒泡到父级。提到 WeakRef 防止 abort 监听器泄漏。
+What separates a top answer: Mention that every pending tool_use needs a corresponding tool_result error block (otherwise the API message format is invalid). Mention that abort reasons are typed — sibling_error doesn't bubble to the parent. Mention WeakRef to prevent abort listener leaks.
 
-### 开放层：确认你"能架构"
+### Open-Ended Layer: Confirming You "Can Architect"
 
-**Q9：如果从零搭建一个 Agent 框架，你的架构怎么设计？**
+**Q9: If you were building an Agent framework from scratch, how would you architect it?**
 
-**示范回答框架**（分 4 个阶段渐进，展示工程节奏感）：
+**Model answer framework** (4 progressive phases, demonstrating engineering tempo):
 
-阶段一（1-2 天）：核心循环——while-true + LLM API + tool_use 解析 + 3 个硬编码工具。跑通 happy path。
+Phase 1 (1-2 days): Core loop — while-true + LLM API + tool_use parsing + 3 hardcoded tools. Get the happy path working.
 
-阶段二（2-3 天）：工具框架——buildTool 工厂 + Zod schema + ToolRegistry + 输入校验。
+Phase 2 (2-3 days): Tool framework — buildTool factory + Zod schema + ToolRegistry + input validation.
 
-阶段三（3-5 天）：安全和可靠性——权限规则 + 重试引擎 + AbortController + 错误传播 + context window 管理。**这层是区分 toy 和 production-ready 的关键。**
+Phase 3 (3-5 days): Security and reliability — permission rules + retry engine + AbortController + error propagation + context window management. **This layer is what separates a toy from production-ready.**
 
-阶段四（按需）：MCP 集成 + 多 Agent + session 持久化 + streaming + IDE 集成。
+Phase 4 (as needed): MCP integration + multi-Agent + session persistence + streaming + IDE integration.
 
-**高分关键**：不要一上来就画大饼。先说清楚 MVP 是什么，再渐进式添加。面试官看的是你对"最小可行 Agent"的判断力，和对"从 demo 到生产"需要增加什么的认知。
+**The key to a top score**: Don't start by painting a grand vision. First clearly articulate the MVP, then show how you'd incrementally build up. Interviewers are evaluating your judgment about "what constitutes a minimum viable Agent" and your understanding of what it takes to go from demo to production.
 
-**Q10：如何处理 Agent 安全性？从 prompt injection 到 RCE。**
+**Q10: How do you handle Agent security? From prompt injection to RCE.**
 
-**高分关键**：区分 direct prompt injection（用户主动注入）和 indirect prompt injection（通过工具结果注入——比如读一个包含恶意指令的文件，LLM 被操纵执行危险操作）。讨论 Bash AST 分析 vs regex 的安全性差异。解释 fail-closed 的工程含义。
+**The key to a top score**: Distinguish between direct prompt injection (the user deliberately injects) and indirect prompt injection (injection via tool results — e.g., reading a file containing malicious instructions, manipulating the LLM into executing dangerous operations). Discuss the security differences between Bash AST analysis vs. regex. Explain the engineering implications of fail-closed.
 
-### 五条追问链——模拟面试官层层深入
+### Five Follow-Up Chains — Simulating an Interviewer Drilling Deeper
 
-**追问链 1：Tool-Call Loop**
+**Follow-Up Chain 1: Tool-Call Loop**
 
-L1: "请解释 Tool-Call Loop 的基本流程" → 及格线：画出循环图 | 高分线：提到多种 stop_reason
+L1: "Explain the basic flow of a Tool-Call Loop" → Passing: draw the loop diagram | Top score: mention multiple stop_reasons
 
-L2: "循环什么时候终止？" → 及格线：end_turn + max_turns | 高分线：列出 7+ 种退出条件
+L2: "When does the loop terminate?" → Passing: end_turn + max_turns | Top score: list 7+ exit conditions
 
-L3: "LLM 连续调用 100 次工具怎么办？" → 及格线：maxTurns 限制 | 高分线：token budget 追踪 + cost tracking + denial threshold
+L3: "What if the LLM calls tools 100 times in a row?" → Passing: maxTurns limit | Top score: token budget tracking + cost tracking + denial threshold
 
-L4: "流式接收时工具已经开始执行了吗？" → 及格线：认为串行执行 | 高分线：描述 StreamingToolExecutor 边接收边执行
+L4: "Are tools already executing while the stream is being received?" → Passing: assumes serial execution | Top score: describes StreamingToolExecutor receiving and executing simultaneously
 
-L5: "中断后消息历史怎么保持一致？" → 及格线：取消执行 | 高分线：为每个 pending tool_use 补齐 tool_result error block
+L5: "How do you keep message history consistent after an interrupt?" → Passing: cancel execution | Top score: fill in a tool_result error block for every pending tool_use
 
-**追问链 2：安全设计**
+**Follow-Up Chain 2: Security Design**
 
-L1: "Agent 执行 shell 命令有什么风险？" → 及格线：RCE | 高分线：区分 direct/indirect injection
+L1: "What are the risks of an Agent executing shell commands?" → Passing: RCE | Top score: distinguish direct/indirect injection
 
-L2: "用正则匹配危险命令可行吗？" → 及格线：容易绕过 | 高分线：举出 parser differential 例子
+L2: "Is regex matching of dangerous commands viable?" → Passing: easy to bypass | Top score: give a parser differential example
 
-L3: "你会怎么设计安全分析器？" → 及格线：用 parser | 高分线：fail-closed 白名单 + tree-sitter
+L3: "How would you design a security analyzer?" → Passing: use a parser | Top score: fail-closed whitelist + tree-sitter
 
-L4: "静态分析不够怎么办？" → 及格线：训练分类器 | 高分线：speculative classifier + 双阶段设计
+L4: "What if static analysis isn't enough?" → Passing: train a classifier | Top score: speculative classifier + two-phase design
 
-L5: "分类器和规则冲突怎么办？" → 及格线：规则优先 | 高分线：完整优先级级联 + denial tracking
+L5: "What if the classifier and rules conflict?" → Passing: rules take priority | Top score: complete priority cascade + denial tracking
 
-**追问链 3：上下文管理**
+**Follow-Up Chain 3: Context Management**
 
-L1: "context window 用完了怎么办？" → 及格线：总结 | 高分线：区分 truncation/summarization
+L1: "What do you do when the context window is full?" → Passing: summarize | Top score: distinguish truncation vs. summarization
 
-L2: "阈值如何设定？" → 及格线：快满时触发 | 高分线：有效窗口 - buffer tokens
+L2: "How do you set the threshold?" → Passing: trigger when nearly full | Top score: effective window - buffer tokens
 
-L3: "压缩失败了怎么办？" → 及格线：重试 | 高分线：circuit breaker + reactive compact 兜底
+L3: "What if compaction fails?" → Passing: retry | Top score: circuit breaker + reactive compact as fallback
 
-L4: "压缩会打破 prompt cache 吗？" → 及格线：不确定 | 高分线：一定会，但 system prompt + tools 不变可以加速新 cache 建立
+L4: "Does compaction break the prompt cache?" → Passing: not sure | Top score: it definitely does, but system prompt + tools remain unchanged, accelerating new cache establishment
 
-L5: "REPL 模式和 SDK 模式的上下文管理有什么不同？" → 及格线：都压缩 | 高分线：REPL 保留完整历史（UI 需要回滚），SDK 实际截断（无 UI，内存约束更重要）
+L5: "How does context management differ between REPL mode and SDK mode?" → Passing: both compact | Top score: REPL preserves full history (UI needs rollback capability), SDK actually truncates (no UI, memory constraints matter more)
 
 ---
 
-## 第四章：那些容易被忽略的高价值知识点
+## Chapter 4: Easily Overlooked, High-Value Knowledge Points
 
-QA 审计团队发现了 6 个大多数候选人会遗漏但面试价值极高的技术点。
+The QA audit team identified 6 technical points that most candidates miss but carry extremely high interview value.
 
-### 4.1 重试引擎——不只是指数退避
+### 4.1 The Retry Engine — More Than Exponential Backoff
 
-Claude Code 的重试引擎有 823 行（`withRetry.ts`），远比"指数退避 + 抖动"复杂：
+Claude Code's retry engine spans 823 lines (`withRetry.ts`), far more complex than "exponential backoff + jitter":
 
-- **选择性重试**：后台查询（summary、title 等）在 529 错误时立即放弃，不重试——因为每次重试对 API 网关是 3-10x 放大，后台查询失败用户看不到
-- **持久重试模式**：无人值守 session 中，429/529 错误无限重试，每 30s 发送心跳保活
-- **Fast mode 仲裁**：短 retry-after（<20s）保持 fast mode（为了保住 prompt cache），长 retry-after 降级到标准速度并设 10 分钟冷却期
-- **Model fallback**：consecutive 529 超过 3 次，切换到 fallback model——但切换时需要清理孤立的 assistant 消息、剥离 thinking signatures、重建 streaming tool executor
+- **Selective retry**: Background queries (summary, title generation, etc.) abort immediately on 529 errors without retrying — because each retry amplifies load on the API gateway by 3-10x, and users don't notice background query failures
+- **Persistent retry mode**: In unattended sessions, 429/529 errors trigger infinite retries with heartbeats sent every 30 seconds to keep the connection alive
+- **Fast mode arbitration**: Short retry-after values (<20s) maintain fast mode (to preserve prompt cache); long retry-after values degrade to standard speed with a 10-minute cooldown period
+- **Model fallback**: After 3+ consecutive 529 errors, switch to a fallback model — but the switch requires cleaning up orphaned assistant messages, stripping thinking signatures, and rebuilding the streaming tool executor
 
-**面试中这样引出**："API 调用失败的处理不只是重试。生产系统需要区分背景查询和前台查询的重试策略、处理 prompt cache 在 fast mode 切换时的保温、以及 model fallback 时的 partial state 清理。"
+**How to introduce this in an interview**: "Handling API call failures isn't just about retrying. A production system needs to differentiate retry strategies between background and foreground queries, manage prompt cache warming during fast mode transitions, and clean up partial state during model fallback."
 
-### 4.2 Token 经济学——三重预算机制
+### 4.2 Token Economics — Triple Budget Mechanism
 
-Claude Code 有三个独立的预算执行机制：
+Claude Code has three independent budget enforcement mechanisms:
 
-1. **maxBudgetUsd**：美元硬限制，每条消息后检查
-2. **maxTurns**：轮次限制，每次循环前检查
-3. **taskBudget**：API 级 task budget，跨压缩边界追踪剩余额度
+1. **maxBudgetUsd**: Hard dollar limit, checked after every message
+2. **maxTurns**: Turn limit, checked before each loop iteration
+3. **taskBudget**: API-level task budget, tracking remaining allowance across compaction boundaries
 
-Fast mode 下 Opus 4.6 的成本是标准模式的 6 倍（$30/$150 vs $5/$25 per Mtok）。cost tracker 根据 `usage.speed === 'fast'` 动态选择定价。
+In fast mode, Opus 4.6 costs 6x the standard rate ($30/$150 vs $5/$25 per Mtok). The cost tracker dynamically selects pricing based on `usage.speed === 'fast'`.
 
-### 4.3 Prompt Cache 作为架构约束
+### 4.3 Prompt Cache as an Architectural Constraint
 
-大多数人以为 prompt cache 是透明优化。错了。在 Claude Code 中，**cache 命中率驱动了架构决策**：
+Most people think prompt cache is a transparent optimization. Wrong. In Claude Code, **cache hit rate drives architectural decisions**:
 
-- compact.ts 明确禁止在 forked agent 上设置 `maxOutputTokens`——因为这会造成 thinking config mismatch，使 cache key 不一致
-- BashTool 的 prompt 将 per-UID 临时目录替换为 `$TMPDIR`——避免破坏跨用户的全局 prompt cache
-- 整个 forked-agent compaction 路径的存在，就是为了复用主对话的 cached prefix
+- compact.ts explicitly prohibits setting `maxOutputTokens` on forked agents — because this would cause a thinking config mismatch, making the cache key inconsistent
+- BashTool's prompt replaces per-UID temporary directories with `$TMPDIR` — to avoid breaking the global prompt cache across users
+- The entire forked-agent compaction path exists to reuse the main conversation's cached prefix
 
-"Prompt cache 是一个架构约束，不是一个透明优化"——这句话能让面试官眼前一亮。
+"Prompt cache is an architectural constraint, not a transparent optimization" — this line will make an interviewer's eyes light up.
 
-### 4.4 Tombstone 消息——流式 fallback 的清理
+### 4.4 Tombstone Messages — Cleanup After Streaming Fallback
 
-当 streaming model fallback 发生时，部分 assistant 消息（包含 thinking blocks）变得无效——它们的 signatures 是模型绑定的。系统通过 yield `{ type: 'tombstone', message: msg }` 从 UI 和 transcript 中移除这些消息。
+When a streaming model fallback occurs, partial assistant messages (containing thinking blocks) become invalid — their signatures are model-bound. The system removes these messages from the UI and transcript by yielding `{ type: 'tombstone', message: msg }`.
 
-没有 tombstone 机制，resume 时重放无效的 thinking blocks 会导致 API 报错。这揭示了一个 LLM Agent 特有的生产挑战：**部分流式状态会产生需要主动清理的孤立 artifact**。
+Without the tombstone mechanism, replaying invalid thinking blocks during resume would cause API errors. This reveals a production challenge unique to LLM Agents: **partial streaming state produces orphaned artifacts that require proactive cleanup.**
 
-### 4.5 Write-Ahead-Log 式的会话持久化
+### 4.5 Write-Ahead-Log Style Session Persistence
 
-user 消息在 **进入 query loop 之前** 就持久化到 transcript，而不是之后。这是 write-ahead-log 模式——如果进程在 API 响应前被 kill，transcript 里至少有用户的输入，`--resume` 能恢复。
+User messages are persisted to the transcript **before entering the query loop**, not after. This is the write-ahead-log pattern — if the process is killed before the API responds, the transcript at least contains the user's input, allowing `--resume` to recover.
 
-### 4.6 Dead Code Elimination 作为安全边界
+### 4.6 Dead Code Elimination as a Security Boundary
 
-Claude Code 的 feature flags 不是运行时 toggle，而是编译时 DCE。`feature('BASH_CLASSIFIER')` 在外部 build 中会被 tree-shake——feature-gated 的代码和字符串字面量在产物中**物理消失**。这不只是 feature gating，是安全边界——防止内部功能名和配置泄漏到公共 build。
-
----
-
-## 第五章：四个常见技术误区——别在面试里踩坑
-
-### 误区 1："Agent 就是一个 while loop"
-
-**正解**：while-true 只是底盘。实际是一个 1,500 行的状态机，有 9 种状态转移、一条前置压缩管线（tool result budget → snip → microcompact → collapse → autocompact）、一条后置管线（attachment 生成、memory prefetch、skill discovery 注入、queued command 排空）。
-
-### 误区 2："工具调用是同步的"
-
-**正解**：至少三种并发模式——(1) 分区并发（read-only 并行，write 串行），(2) 流式 overlap（边接收 API 响应边执行工具），(3) 后台 Agent 异步执行。最大并发度通过 `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` 控制，默认 10。
-
-### 误区 3："上下文满了就截断"
-
-**正解**：永远不截断，永远摘要。而且摘要后还有恢复步骤——重读最近 5 个文件（50K token 预算）、重注入 plan 文件、重新通告 deferred tools、重跑 SessionStart hooks。
-
-### 误区 4："安全就是加个黑名单"
-
-**正解**：5 层独立防御。最精妙的是用 LLM 审计 LLM——分类器看到的是 tool_use 的结构化摘要（经过 `toAutoClassifierInput()` 过滤），和主模型看到的原始对话是不同视角。
+Claude Code's feature flags aren't runtime toggles — they're compile-time DCE. `feature('BASH_CLASSIFIER')` gets tree-shaken in external builds — feature-gated code and string literals **physically vanish** from the artifact. This isn't just feature gating; it's a security boundary — preventing internal feature names and configurations from leaking into public builds.
 
 ---
 
-## 第六章：从知识到 Offer——实战策略
+## Chapter 5: Four Common Technical Misconceptions — Don't Trip Up in Your Interview
 
-### 6.1 你的焦虑，我都懂
+### Misconception 1: "An Agent is just a while loop"
 
-在准备过程中，你一定会有这些焦虑。让我一一回应：
+**The truth**: while-true is merely the chassis. In reality, it's a 1,500-line state machine with 9 state transitions, a pre-processing compaction pipeline (tool result budget → snip → microcompact → collapse → autocompact), and a post-processing pipeline (attachment generation, memory prefetch, skill discovery injection, queued command draining).
 
-**"我没有 Agent 项目经验，面试官会直接刷我吗？"**
+### Misconception 2: "Tool calls are synchronous"
 
-AI Agent 工程师这个岗位极新。2024-2026 年间，有生产级 Agent 开发经验的人凤毛麟角。你的竞争对手大概率也没有。面试官看的是：(a) 你对 Agent 架构的理解深度，(b) 你能否快速学习并落地，(c) 你的基础工程能力。后端经验在并发、容错、分布式方面是直接加分的。
+**The truth**: There are at least three concurrency modes — (1) partitioned concurrency (read-only in parallel, write serialized), (2) streaming overlap (executing tools while still receiving the API response), (3) background Agents running asynchronously. Maximum concurrency is controlled via `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`, defaulting to 10.
 
-**"读源码和自己写有很大差别，读了真的有用吗？"**
+### Misconception 3: "When the context is full, just truncate"
 
-有用，但不够。读源码的价值在于建立"正确的心智模型"——知道工业级 Agent 长什么样。但你必须把"读"转化为"做"。所以你需要一个 Demo。阅读是输入，Demo 和文档是输出，两者缺一不可。
+**The truth**: Never truncate — always summarize. And after summarization, there's a recovery phase — re-read the 5 most recent files (50K token budget), re-inject the plan file, re-announce deferred tools, re-run SessionStart hooks.
 
-**"面试中被质疑'你只是读了别人的代码'怎么办？"**
+### Misconception 4: "Security is just adding a blocklist"
 
-这样回应：
-> "我做了三件事：第一，我产出了 27 篇系统性架构分析文档，每篇都有源码级引用，已开源在 GitHub。第二，我从源码中提取核心设计模式，在自己的 Demo 里重新实现。第三，我做了横向对比——Claude Code 的设计和 LangChain、AutoGPT、CrewAI 面对同一问题的不同取舍。逆向分析一个 20 万行的生产系统，锻炼的是架构理解力和设计判断力。"
-
-**"时间不够，27 篇文档看不完。"**
-
-按优先级来：
-1. **必读**（命中率 90%+）：系统概览 + query engine + 工具系统 → 核心循环
-2. **强推**（命中率 70%+）：安全系统 4 篇 → 差异化竞争力
-3. **加分**（命中率 40%+）：多 Agent + MCP → 深度话题
-4. **选读**（命中率 <20%）：Vim 引擎、UI 渲染、Bridge → 除非你面前端向
-
-面试 45-60 分钟，最多深入 2-3 个话题。你不需要懂所有东西，你需要在被问到的话题上答得深。
-
-### 6.2 简历怎么写
-
-**不要这样写**：
-> "阅读了 Claude Code 20 万行源码"
-
-**要这样写**：
-> "对 205K+ 行生产级 AI Agent 系统（Anthropic Claude Code）完成架构逆向分析，输出 27 篇带源码级引用的技术文档。基于分析结果，实现了简化版 Agent Runtime（含工具工厂、权限分层、流式执行器），并撰写系列技术博客。"
-
-核心转化路径：**读源码 → 理解架构 → 写文档 → 搭 Demo → 发博客**。每一步都是可量化的输出。
-
-### 6.3 不同背景的叙事锚点
-
-**后端（Java/Go）**：
-> "我能把 Agent 从 demo 做到 production-ready——包括并发控制、重试引擎、权限分层、可观测性。这些是我后端工程经验的直接迁移。"
-
-**前端（React/Vue）**：
-> "我理解用户交互层的复杂度——流式渲染、状态管理、中断处理。Claude Code 用 React + Ink 做终端 UI，这是我的直接对口经验。"
-
-**全栈**：
-> "我能独立设计和实现完整 Agent 系统——从终端 UI 到安全层到 API 集成。"
-
-**算法/ML**：
-> "我既懂模型层又懂工程层，能在模型能力和系统可靠性之间做正确的 tradeoff。Claude Code 的 205K 行代码中，真正涉及模型内部的几乎没有，全是工程——这证明 Agent 的核心价值在工程侧。"
-
-### 6.4 三十天行动计划
-
-| 阶段 | 时间 | 重点 | 产出 |
-|------|------|------|------|
-| **地基** | Week 1 | 精读核心文档（概览 + query engine + 工具 + 安全） | 自己的架构理解图 + 3 分钟口述 |
-| **深度** | Week 2 | 横向对比（LangChain/AutoGPT） + 启动 Demo | 对比笔记 + 能跑的 Agent 核心循环 |
-| **广度** | Week 3 | 系统设计练习 3 道 + Demo 完善 + 写博客 | 白板设计能力 + 完善的 Demo + 1 篇博客 |
-| **冲刺** | Week 4 | 模拟面试 3 轮 + 简历定稿 + 目标公司定向准备 | 流畅的面试表现 + 完整的作品集 |
-
-**时间分配**：40% 阅读分析 + 40% 动手编码 + 20% 模拟面试。
-
-**最小 Demo 清单**（区分 toy 和 production 意识的关键）：
-1. `buildTool()` 工厂 + 3 个工具（file read、bash、search）
-2. while-true 核心循环
-3. 权限检查（规则匹配 + 危险命令检测）
-4. 工具并发控制（read 并行 / write 串行）
-5. Token 计数 + 上下文截断
-6. AbortController 取消机制
-7. README + 架构图 + 效果截图
-
-### 6.5 面试中怎么说话
-
-**原则：不要背诵，要自然展示。**
-
-错误示范："Claude Code 的 YOLO 分类器在 yoloClassifier.ts 第 769 行初始化。"
-
-正确示范："安全分类器的设计权衡是——单阶段要么太慢（加推理），要么误判太多（不加推理）。双阶段让快速分类器处理明确 case，模糊 case 才用推理复核。两个阶段共享 prompt prefix 利用缓存，延迟增加极小。"
-
-前者展示的是记忆力，后者展示的是理解力。面试官要的是后者。
-
-**核心话术速查卡**：
-
-| 场景 | 说什么 |
-|------|--------|
-| 自我介绍 | "我系统性地研究了生产级 AI Agent 系统的架构设计，从工具调度到安全分层到多智能体编排。我不只是读了源码——我输出了分析文档并搭建了自己的 Agent Runtime Demo。" |
-| 被问 Agent 循环 | "核心是一个 while-true 循环，但生产级实现需要处理 9 种退出条件。" |
-| 被问安全 | "5 层防御，核心原则是 fail-closed。最精妙的是用独立 LLM 审计主 LLM。" |
-| 被质疑只是读代码 | "逆向分析 20 万行生产系统锻炼的是架构判断力。而且我不只是读——我做了对比分析、写了文档、搭了 Demo。" |
-| 被问为什么转型 | "Agent 是软件工程的范式转移。LLM 作为不确定性决策组件，对系统设计提出了全新挑战——安全、容错、成本控制都需要重新思考。" |
+**The truth**: 5 independent layers of defense. The most elegant design is using an LLM to audit another LLM — the classifier sees a structured summary of the tool_use (filtered through `toAutoClassifierInput()`), giving it an entirely different view from the raw conversation that the primary model sees.
 
 ---
 
-## 第七章：JD 关键词 → 源码映射表
+## Chapter 6: From Knowledge to Offer — Practical Strategy
 
-面试前看一遍目标公司的 JD，在下表中找到对应的源码位置和关键设计模式：
+### 6.1 Your Anxieties — I Get Them All
 
-| JD 关键词 | 核心源码 | 关键设计模式 |
-|-----------|----------|-------------|
+During your preparation, you'll inevitably face these anxieties. Let me address each one:
+
+**"I have no Agent project experience. Will the interviewer screen me out immediately?"**
+
+The AI Agent engineer role is extremely new. Between 2024 and 2026, people with production-grade Agent development experience are unicorn-rare. Your competitors almost certainly don't have it either. What interviewers are evaluating: (a) the depth of your understanding of Agent architecture, (b) whether you can learn fast and deliver, (c) your fundamental engineering skills. Backend experience in concurrency, fault tolerance, and distributed systems is a direct bonus.
+
+**"There's a big difference between reading source code and writing your own. Is reading really useful?"**
+
+Yes, but it's not enough. The value of reading source code is building the right mental model — knowing what an industrial-grade Agent actually looks like. But you must transform "reading" into "doing." That's why you need a demo. Reading is the input; demos and documentation are the output. You need both.
+
+**"What if the interviewer challenges me with 'you just read someone else's code'?"**
+
+Respond like this:
+> "I did three things: First, I produced 27 systematic architecture analysis documents, each with source-level citations, all open-sourced on GitHub. Second, I extracted core design patterns from the source and re-implemented them in my own demo. Third, I did a lateral comparison — how Claude Code's designs differ from LangChain, AutoGPT, and CrewAI when facing the same problems. Reverse engineering a 200K-line production system develops architectural comprehension and design judgment."
+
+**"I don't have enough time. Can't read all 27 documents."**
+
+Prioritize:
+1. **Must-read** (90%+ hit rate): System overview + query engine + tool system → the core loop
+2. **Strongly recommended** (70%+ hit rate): The 4 security articles → your differentiator
+3. **Bonus** (40%+ hit rate): Multi-Agent + MCP → deep-dive topics
+4. **Optional** (<20% hit rate): Vim engine, UI rendering, Bridge → only if you're interviewing for a frontend-leaning role
+
+An interview lasts 45-60 minutes, with room to deep-dive into 2-3 topics at most. You don't need to know everything — you need to go deep on the topics you're asked about.
+
+### 6.2 How to Write Your Resume
+
+**Don't write this**:
+> "Read 200K lines of Claude Code source code"
+
+**Write this instead**:
+> "Completed an architectural reverse analysis of a 205K+ line production-grade AI Agent system (Anthropic Claude Code), producing 27 technical documents with source-level citations. Based on the analysis, implemented a simplified Agent Runtime (featuring a tool factory, layered permissions, and a streaming executor), and authored a technical blog series."
+
+The core conversion path: **read source → understand architecture → write documentation → build demo → publish blog.** Every step produces quantifiable output.
+
+### 6.3 Narrative Anchors by Background
+
+**Backend (Java/Go)**:
+> "I can take an Agent from demo to production-ready — including concurrency control, retry engine, permission layering, and observability. These are direct transfers from my backend engineering experience."
+
+**Frontend (React/Vue)**:
+> "I understand the complexity of the user interaction layer — streaming rendering, state management, interrupt handling. Claude Code uses React + Ink for its terminal UI, which directly maps to my experience."
+
+**Full-Stack**:
+> "I can independently design and implement a complete Agent system — from the terminal UI to the security layer to API integration."
+
+**Algorithms/ML**:
+> "I understand both the model layer and the engineering layer, so I can make the right tradeoffs between model capability and system reliability. In Claude Code's 205K lines of code, virtually nothing touches model internals — it's all engineering. This proves that the core value of Agents lives on the engineering side."
+
+### 6.4 Thirty-Day Action Plan
+
+| Phase | Timeline | Focus | Output |
+|-------|----------|-------|--------|
+| **Foundation** | Week 1 | Deep-read core documents (overview + query engine + tools + security) | Your own architecture comprehension map + 3-minute verbal walkthrough |
+| **Depth** | Week 2 | Lateral comparisons (LangChain/AutoGPT) + start building your demo | Comparison notes + working Agent core loop |
+| **Breadth** | Week 3 | 3 system design exercises + polish demo + write blog post | Whiteboard design capability + polished demo + 1 blog post |
+| **Sprint** | Week 4 | 3 mock interviews + finalize resume + targeted prep for target companies | Smooth interview performance + complete portfolio |
+
+**Time allocation**: 40% reading and analysis + 40% hands-on coding + 20% mock interviews.
+
+**Minimum demo checklist** (the key to demonstrating production awareness over toy projects):
+1. `buildTool()` factory + 3 tools (file read, bash, search)
+2. while-true core loop
+3. Permission checks (rule matching + dangerous command detection)
+4. Tool concurrency control (read in parallel / write serialized)
+5. Token counting + context truncation
+6. AbortController cancellation mechanism
+7. README + architecture diagram + screenshots
+
+### 6.5 How to Talk in the Interview
+
+**Principle: Don't recite — demonstrate understanding naturally.**
+
+Wrong approach: "Claude Code's YOLO classifier is initialized at line 769 of yoloClassifier.ts."
+
+Right approach: "The security classifier's design tradeoff is this — a single phase is either too slow (with reasoning) or has too many false positives (without reasoning). Two phases let the fast classifier handle clear-cut cases while ambiguous cases get a reasoning-backed second opinion. Both phases share a prompt prefix to leverage caching, so the added latency is minimal."
+
+The first demonstrates memorization; the second demonstrates understanding. Interviewers want the latter.
+
+**Quick Reference Card for Key Talking Points**:
+
+| Scenario | What to Say |
+|----------|-------------|
+| Self-introduction | "I've systematically studied the architectural design of production-grade AI Agent systems — from tool scheduling to security layering to multi-agent orchestration. I didn't just read source code — I produced analysis documents and built my own Agent Runtime demo." |
+| Asked about Agent loop | "At its core, it's a while-true loop, but a production implementation needs to handle 9 exit conditions." |
+| Asked about security | "5 layers of defense, with the core principle of fail-closed. The most elegant design is using an independent LLM to audit the primary LLM." |
+| Challenged about just reading code | "Reverse engineering a 200K-line production system develops architectural judgment. And I didn't just read — I did comparative analysis, wrote documentation, and built a demo." |
+| Asked why you're transitioning | "Agents represent a paradigm shift in software engineering. LLMs as nondeterministic decision-making components introduce entirely new challenges for system design — security, fault tolerance, and cost control all need to be rethought from the ground up." |
+
+---
+
+## Chapter 7: JD Keyword → Source Code Mapping Table
+
+Before your interview, scan the target company's JD and find the corresponding source locations and key design patterns in this table:
+
+| JD Keyword | Core Source | Key Design Pattern |
+|------------|-------------|-------------------|
 | Tool Calling | `Tool.ts` — `buildTool()` + Zod schema | Builder pattern + schema-first |
 | Agent Loop | `query.ts` — `queryLoop()` | State machine + AsyncGenerator |
-| Concurrent Execution | `toolOrchestration.ts` — `partitionToolCalls()` | 读写锁分区并发 |
-| Streaming | `StreamingToolExecutor.ts` | 边接收边执行 |
-| Permission / Security | `permissions/` (25 files) | 5 层 defense-in-depth |
-| Bash Security | `bash/ast.ts` — tree-sitter | AST 白名单 + fail-closed |
-| Context Management | `compact/autoCompact.ts` | 6 层回收 + circuit breaker |
+| Concurrent Execution | `toolOrchestration.ts` — `partitionToolCalls()` | Reader-writer lock partitioned concurrency |
+| Streaming | `StreamingToolExecutor.ts` | Receive and execute simultaneously |
+| Permission / Security | `permissions/` (25 files) | 5-layer defense-in-depth |
+| Bash Security | `bash/ast.ts` — tree-sitter | AST whitelist + fail-closed |
+| Context Management | `compact/autoCompact.ts` | 6-tier reclamation + circuit breaker |
 | Multi-Agent | `AgentTool/` + `coordinator/` | Fork-join + CoW cache |
-| MCP Protocol | `services/mcp/client.ts` | 3 transport + 7 scope |
-| State Management | `state/AppState.tsx` — Zustand | 中心化 store + DeepImmutable |
-| Error Recovery | `withRetry.ts` (823 lines) | 选择性重试 + model fallback |
-| Cost Control | `cost-tracker.ts` | 三重预算执行 |
+| MCP Protocol | `services/mcp/client.ts` | 3 transports + 7 scopes |
+| State Management | `state/AppState.tsx` — Zustand | Centralized store + DeepImmutable |
+| Error Recovery | `withRetry.ts` (823 lines) | Selective retry + model fallback |
+| Cost Control | `cost-tracker.ts` | Triple budget enforcement |
 | Feature Flags | `feature()` via `bun:bundle` | Build-time DCE |
-| IDE Integration | `bridge/` | JWT + 双向消息协议 |
-| Observability | `analytics/` + OTel | 4 通道 + PII-safe-by-type-system |
+| IDE Integration | `bridge/` | JWT + bidirectional message protocol |
+| Observability | `analytics/` + OTel | 4 channels + PII-safe-by-type-system |
 
 ---
 
-## 结语：致每一个想转型的工程师
+## Closing: To Every Engineer Considering the Transition
 
-AI Agent 工程师不是一个遥不可及的岗位。它不要求你懂 attention mechanism 的数学推导，不要求你训练过模型，不要求你发过论文。
+AI Agent engineer is not some unreachable position. It doesn't require you to understand the mathematical derivation of attention mechanisms. It doesn't require you to have trained models. It doesn't require you to have published papers.
 
-它要求的是：**你能把一个不确定性极高的组件（LLM）嵌入到一个可靠的系统中**。
+What it does require is: **you can embed a component with extreme nondeterminism (an LLM) into a reliable system.**
 
-这需要你懂并发控制——因为 Agent 要同时执行多个工具。
-这需要你懂安全工程——因为 Agent 能执行真实代码，一个 prompt injection 可能导致 RCE。
-这需要你懂状态管理——因为 Agent 的对话是有状态的、长时间运行的、可中断的。
-这需要你懂成本控制——因为每次 LLM 调用都是真金白银。
-这需要你懂系统设计——因为生产级 Agent 不是一个 while loop，而是一个 14 子系统、205K 行代码的工程系统。
+This means you need to understand concurrency control — because Agents execute multiple tools simultaneously.
+This means you need to understand security engineering — because Agents can execute real code, and a single prompt injection could lead to RCE.
+This means you need to understand state management — because Agent conversations are stateful, long-running, and interruptible.
+This means you need to understand cost control — because every LLM call costs real money.
+This means you need to understand system design — because a production-grade Agent is not a while loop; it's an engineering system with 14 subsystems and 205K lines of code.
 
-所有这些，你作为一个有经验的软件工程师，已经具备了基础。你缺的只是 Agent 特定的知识和视角。
+All of this — as an experienced software engineer, you already have the foundation. What you're missing is Agent-specific knowledge and perspective.
 
-而这些知识和视角，就藏在这 205,000 行代码里。
+And that knowledge and perspective? It's all here, in these 205,000 lines of code.
 
-现在你知道去哪里找了。
+Now you know where to find it.
 
 ---
 
-*本文档基于 [claude-learning](https://github.com/qycss/claude-learning) 仓库的 27 篇源码分析文档撰写。所有源码引用均基于 Claude Code 2026 年 3 月 31 日的 source map 版本。*
+*This document is based on the 27 source code analysis articles in the [claude-learning](https://github.com/qycss/claude-learning) repository. All source code references are based on the Claude Code source map version from March 31, 2026.*

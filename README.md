@@ -5,7 +5,7 @@
 ### The Most Comprehensive Source-Level Analysis of Claude Code's Architecture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-27%20chapters-green.svg)](#documentation)
+[![Docs](https://img.shields.io/badge/docs-28%20chapters-green.svg)](#documentation)
 [![Source Files](https://img.shields.io/badge/source%20refs-100%2B-orange.svg)](#)
 [![Language](https://img.shields.io/badge/lang-EN%20%7C%20%E4%B8%AD%E6%96%87-brightgreen.svg)](README.zh-CN.md)
 
@@ -155,7 +155,7 @@ graph TB
 | MCP Transports | 8 types |
 | Security Layers | 5 |
 | Telemetry Channels | 4 |
-| Chapters in This Repo | 27 |
+| Chapters in This Repo | 28 |
 
 ## How This Differs from Other Analyses
 
