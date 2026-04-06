@@ -131,7 +131,7 @@ graph TB
 
 | # | Chapter | Description |
 |---|---------|-------------|
-| 01 | [AI Agent Engineer Interview Guide](docs/career/ai-agent-interview-guide.md) | 6 technical pillars, tiered interview questions, drill-down chains, 30-day action plan |
+| 01 | [AI Agent Engineer Interview Guide](career/ai-agent-interview-guide.md) | 6 technical pillars, tiered interview questions, drill-down chains, 30-day action plan |
 
 ### Diagrams
 

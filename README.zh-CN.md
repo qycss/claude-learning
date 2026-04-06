@@ -131,7 +131,7 @@ graph TB
 
 | # | 章节 | 描述 |
 |---|------|------|
-| 01 | [AI Agent 工程师面试指南](docs-zh/career/ai-agent-interview-guide.md) | 六大技术支柱、分层面试题库、追问链、30 天行动计划 |
+| 01 | [AI Agent 工程师面试指南](career-zh/ai-agent-interview-guide.md) | 六大技术支柱、分层面试题库、追问链、30 天行动计划 |
 
 ## 关键数字
 
