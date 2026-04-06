@@ -127,6 +127,12 @@ graph TB
 | 06 | [Feature Flag 混淆](docs/internals/zh-CN/feature-flag-obfuscation.md) | `tengu_<word1>_<word2>` 命名模式 |
 | 07 | [遥测与隐私](docs/internals/zh-CN/telemetry-privacy.md) | 四通道架构、PII 保护 |
 
+### 求职实战
+
+| # | 章节 | 描述 |
+|---|------|------|
+| 01 | [AI Agent 工程师面试指南](docs/career/ai-agent-interview-guide.md) | 六大技术支柱、分层面试题库、追问链、30 天行动计划 |
+
 ## 关键数字
 
 | 指标 | 值 |

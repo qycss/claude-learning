@@ -127,6 +127,12 @@ graph TB
 | 06 | [Feature Flag Obfuscation](docs/internals/feature-flag-obfuscation.md) | `tengu_<word1>_<word2>` naming pattern |
 | 07 | [Telemetry & Privacy](docs/internals/telemetry-privacy.md) | 4-channel architecture, PII protection |
 
+### Career Guide
+
+| # | Chapter | Description |
+|---|---------|-------------|
+| 01 | [AI Agent Engineer Interview Guide](docs/career/ai-agent-interview-guide.md) | 6 technical pillars, tiered interview questions, drill-down chains, 30-day action plan |
+
 ### Diagrams
 
 | Diagram | Description |
