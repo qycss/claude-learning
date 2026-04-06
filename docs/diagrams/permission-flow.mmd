@@ -1,0 +1,45 @@
+flowchart TD
+    Start["Tool Invocation"] --> Mode{"Permission Mode?"}
+
+    Mode -->|default| Rules["Check Permission Rules<br/>(allow/deny/ask)"]
+    Mode -->|plan| PlanCheck["Read-only tools only"]
+    Mode -->|auto| AutoPath["Auto Mode Path"]
+    Mode -->|bypassPermissions| BypassCheck["Bypass Kill Switch"]
+    Mode -->|acceptEdits| EditCheck["CWD Check"]
+
+    Rules -->|allow rule matches| Allow["✅ ALLOW"]
+    Rules -->|deny rule matches| Deny["❌ DENY"]
+    Rules -->|no match / ask| Prompt["👤 Prompt User"]
+
+    AutoPath --> Whitelist{"In SAFE_YOLO_<br/>ALLOWLISTED_TOOLS?<br/>(25+ tools)"}
+    Whitelist -->|yes| Allow
+    Whitelist -->|no| Classifier["YOLO Classifier"]
+
+    Classifier --> Stage1["Stage 1: Fast<br/>max_tokens=64<br/>stop=['&lt;/block&gt;']"]
+    Stage1 -->|allow| Allow
+    Stage1 -->|block or unparseable| Stage2["Stage 2: Thinking<br/>max_tokens=4096<br/>&lt;thinking&gt; CoT"]
+    Stage2 -->|allow| Allow
+    Stage2 -->|block| Deny
+    Stage2 -->|API error| FailClosed["❌ BLOCK<br/>(fail-closed)"]
+    Stage2 -->|parse error| FailClosed
+
+    BypassCheck -->|kill switch ON| Prompt
+    BypassCheck -->|kill switch OFF| AutoPath
+
+    EditCheck -->|inside CWD| Allow
+    EditCheck -->|outside CWD| Classifier
+
+    PlanCheck -->|read-only tool| Allow
+    PlanCheck -->|write tool| Deny
+
+    Prompt -->|user allows| Allow
+    Prompt -->|user denies| DenialTrack["Denial Tracking"]
+    DenialTrack -->|consecutive < 3<br/>total < 20| Deny
+    DenialTrack -->|threshold reached| FallbackPrompt["Fallback to<br/>interactive prompting"]
+
+    style Allow fill:#4CAF50,color:#fff
+    style Deny fill:#f44336,color:#fff
+    style FailClosed fill:#f44336,color:#fff
+    style Classifier fill:#2196F3,color:#fff
+    style Stage1 fill:#2196F3,color:#fff
+    style Stage2 fill:#2196F3,color:#fff

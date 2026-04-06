@@ -1,0 +1,48 @@
+sequenceDiagram
+    participant User
+    participant REPL
+    participant QueryEngine
+    participant query as query.ts
+    participant STE as StreamingToolExecutor
+    participant API as Anthropic API
+    participant Tool
+
+    User->>REPL: Submit prompt
+    REPL->>QueryEngine: yield* queryEngine(messages)
+
+    Note over QueryEngine: Session-scoped AsyncGenerator
+    QueryEngine->>query: yield* query(messages, options)
+
+    Note over query: Turn-scoped loop
+    query->>API: POST /messages (streaming)
+
+    loop Streaming Response
+        API-->>query: SSE chunks (text + tool_use)
+        query-->>REPL: yield ProgressMessage
+
+        alt Tool Use Detected
+            query->>STE: executeTool(toolUse)
+
+            Note over STE: Concurrent execution<br/>Read-write lock semantics
+            STE->>Tool: tool.call(input)
+
+            alt Permission Required
+                Tool-->>REPL: Permission request
+                REPL-->>User: Approve/Deny?
+                User-->>REPL: Decision
+                REPL-->>Tool: Permission result
+            end
+
+            Tool-->>STE: ToolResult
+            STE-->>query: results[]
+
+            Note over query: Append tool_result,<br/>loop back to API
+            query->>API: POST /messages (with tool_result)
+        end
+    end
+
+    query-->>QueryEngine: Final response
+    QueryEngine-->>REPL: yield AssistantMessage
+    REPL-->>User: Display response
+
+    Note over QueryEngine: withRetry.ts wraps API calls<br/>629 lines, exponential backoff<br/>Clock skew detection

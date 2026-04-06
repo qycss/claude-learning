@@ -1,0 +1,73 @@
+graph TB
+    subgraph Entry["Entry Points"]
+        CLI["src/main.tsx<br/>CLI Entry<br/>Commander.js + Ink"]
+        CLI_E["src/entrypoints/cli.tsx<br/>Leader/Coordinator"]
+        MCP_E["src/entrypoints/mcp.ts<br/>MCP Server"]
+        SDK_E["src/entrypoints/sdk/<br/>Agent SDK"]
+    end
+
+    subgraph Core["Core Engine"]
+        QE["src/QueryEngine.ts<br/>Session-scoped AsyncGenerator<br/>Streaming + Tool loops"]
+        Query["src/query.ts<br/>Turn-scoped loop<br/>Budget + Abort"]
+        STE["StreamingToolExecutor.ts<br/>Concurrent execution<br/>Read-write lock"]
+    end
+
+    subgraph ToolSystem["Tool System (~40 tools)"]
+        BT["buildTool()<br/>4-line factory"]
+        Bash["BashTool<br/>+ bashSecurity.ts (2592 LOC)"]
+        File["FileRead/Write/Edit"]
+        Agent["AgentTool<br/>+ forkSubagent.ts"]
+        GrepT["GrepTool (ripgrep)"]
+        MCPTool["MCPTool"]
+        LSPTool["LSPTool"]
+    end
+
+    subgraph Security["Security Layer (5 Layers)"]
+        PR["Permission Rules<br/>(allow/deny/ask)"]
+        MV["Mode Validation<br/>(default/plan/auto/bypass)"]
+        TLC["Tool-level Checks<br/>(per-tool isAllowed)"]
+        PS["Path Safety<br/>(CWD containment)"]
+        OS["OS Sandbox<br/>(macOS Seatbelt / Linux)"]
+        YOLO["YOLO Classifier<br/>Stage 1: Fast (64 tok)<br/>Stage 2: Thinking (4096 tok)"]
+    end
+
+    subgraph Services["Services"]
+        MCP_S["MCP<br/>8 transports<br/>7-scope config"]
+        OAuth_S["OAuth 2.0<br/>PKCE + Keychain"]
+        Settings_S["Settings<br/>7-source merge"]
+        Analytics_S["Analytics<br/>4 channels"]
+        Compact_S["Compact<br/>Context compression"]
+    end
+
+    subgraph State["State Management"]
+        Store["AppState.tsx<br/>Zustand ~1200 LOC"]
+        Session["sessionStorage.ts<br/>JSONL append log"]
+    end
+
+    subgraph UI["Terminal UI"]
+        Ink["Custom Ink<br/>Double-buffered renderer"]
+        REPL["REPL.tsx (5005 LOC)"]
+        VM["VirtualMessageList<br/>Virtual scroll"]
+        Vim["Vim Engine<br/>11-state FSM"]
+        MD["StreamingMarkdown<br/>Incremental tokenization"]
+    end
+
+    subgraph Bridge["IDE Bridge"]
+        V1["V1: WebSocket + Ingress"]
+        V2["V2: SSE + CCRClient"]
+        EL["Env-less V2<br/>/v1/code/sessions/.../bridge"]
+    end
+
+    CLI --> CLI_E --> QE
+    MCP_E --> QE
+    SDK_E --> QE
+    QE --> Query --> STE
+    STE --> BT --> ToolSystem
+    ToolSystem --> PR --> MV --> TLC --> PS --> OS
+    MV -.->|auto mode| YOLO
+    QE --> Services
+    QE --> Store --> Session
+    CLI --> Ink --> REPL --> VM
+    REPL --> Vim
+    VM --> MD
+    Bridge --> REPL

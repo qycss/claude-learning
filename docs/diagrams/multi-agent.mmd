@@ -1,0 +1,59 @@
+graph TB
+    subgraph Coordinator["Coordinator Mode (coordinatorMode.ts)"]
+        direction TB
+        Phase1["Phase 1: Planning<br/>Task decomposition"]
+        Phase2["Phase 2: Delegation<br/>Route to agents"]
+        Phase3["Phase 3: Execution<br/>Monitor progress"]
+        Phase4["Phase 4: Synthesis<br/>Merge results"]
+        Phase1 --> Phase2 --> Phase3 --> Phase4
+    end
+
+    subgraph TaskTypes["7 Task Types"]
+        direction LR
+        Code["code"]
+        Research["research"]
+        Test["test"]
+        Debug["debug"]
+        Review["review"]
+        Refactor["refactor"]
+        Deploy["deploy"]
+    end
+
+    subgraph ForkModel["Fork Cache Model (forkSubagent.ts)"]
+        direction TB
+        Parent["Parent Agent<br/>System prompt + History"]
+        Fork["fork()"]
+        Child1["Child Agent 1<br/>Copy-on-Write cache"]
+        Child2["Child Agent 2<br/>Copy-on-Write cache"]
+        Child3["Child Agent 3<br/>Copy-on-Write cache"]
+        Parent --> Fork
+        Fork --> Child1
+        Fork --> Child2
+        Fork --> Child3
+    end
+
+    subgraph TeamSwarm["Team/Swarm (TeamCreateTool)"]
+        direction TB
+        Team["TeamCreateTool"]
+        Backend1["tmux backend<br/>(default)"]
+        Backend2["iTerm2 backend<br/>(macOS)"]
+        Backend3["in-process backend<br/>(fallback)"]
+        Team --> Backend1
+        Team --> Backend2
+        Team --> Backend3
+    end
+
+    subgraph AbortCascade["3-Layer Abort"]
+        direction TB
+        Session["Session AbortController"]
+        Sibling["Sibling AbortController"]
+        PerTool["Per-Tool AbortController"]
+        Session --> Sibling --> PerTool
+        WeakRef["WeakRef for GC safety"]
+        PerTool -.-> WeakRef
+    end
+
+    Coordinator --> TaskTypes
+    Phase2 --> ForkModel
+    Phase2 --> TeamSwarm
+    Phase3 --> AbortCascade
